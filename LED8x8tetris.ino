@@ -28,9 +28,11 @@
 // CONSTANTS
 //--------------------------------------------------------------------------------
 
+#include <SPI.h>
+#include <DMD2.h>
 // size of the LED grid
-#define GRID_W           (8)
-#define GRID_H           (8)
+#define GRID_W           (16)
+#define GRID_H           (20)
 // max size of each tetris piece
 #define PIECE_W          (4)
 #define PIECE_H          (4)
@@ -42,21 +44,6 @@
 
 #define JOYSTICK_PIN     (0)
 #define PIEZO_PIN        (1)
-
-#define _1088BS  // LED type
-
-
-#ifdef _1088BS
-int anodes[] = { 19, 11, 2, 16, 9, 3, 8, 5 };
-int cathodes[] = { 10, 7, 6, 18, 4, 17, 12, 13 };
-#else
-// y values
-int anodes[] = { 9,4,19,6,10,18,11,16 };
-// x values
-int cathodes[] = { 5,12,13,8,17,7,3,2 };
-#endif
-
-
 
 // 1 color drawings of each piece in each rotation.
 // Each piece is max 4 wide, 4 tall, and 4 rotations.
@@ -215,7 +202,7 @@ const char piece_O[] = {
 };
 
 
-// An array of pointers!  
+// An array of pointers!
 const char *pieces[NUM_PIECE_TYPES] = {
   piece_S1,
   piece_S2,
@@ -254,43 +241,43 @@ long move_delay=100;  // 100ms = 5 times a second
 
 // this controls when the piece automatically falls.
 long last_drop;
-long drop_delay=500;  // 500ms = 2 times a second
+long drop_delay = 200; // 200ms
 
 // this is how arduino remembers where pieces are on the grid.
-char grid[8*8];
+char grid[GRID_W * GRID_H];
+char gridPrev[GRID_W * GRID_H];
 
 
+SoftDMD dmd(1, 1);
 //--------------------------------------------------------------------------------
 // METHODS
 //--------------------------------------------------------------------------------
 
-
-// I want to turn on point P(x,y), which is X from the left and Y from the top.
-// I might also want to hold it on for us microseconds.
-void p(int x,int y,int us) {
-  // don't try to turn on a light that doesn't exist
-  //if(x<0 || x>GRID_W) return;
-  //if(y<0 || y>GRID_H) return;
-  
-  // now light it
-  digitalWrite(anodes[y],HIGH);
-  digitalWrite(cathodes[x],LOW);
-  delayMicroseconds(us);
-  digitalWrite(cathodes[x],HIGH);
-  digitalWrite(anodes[y],LOW);
+// Function to copy 'len' elements from 'src' to 'dst'
+// https://forum.arduino.cc/t/copying-array-into-another-array/264828
+void copyChar(char* src, char* dst, int len) {
+  memcpy(dst, src, sizeof(src[0])*len);
 }
 
 
 // grid contains the arduino's memory of the game board, including the piece that is falling.
+// Only update the pixels what change
 void draw_grid() {
   int x, y;
   for(y=0;y<GRID_H;++y) {
     for(x=0;x<GRID_W;++x) {
-      if( grid[y*GRID_W+x] != 0 ) {
-        p(x,y,150);
+      if( grid[y*GRID_W+x] > gridPrev[y * GRID_W + x] ) {
+        dmd.setPixel(y, x); // Turn pixel on
+      }
+      else if ( grid[y * GRID_W + x] < gridPrev[y * GRID_W + x] ) {
+        dmd.setPixel(y, x, GRAPHICS_OFF); //turn pixel off
+      }
+      else {
+        //No change, nothing to do
       }
     }
   }
+  copyChar(grid, gridPrev, 16 * 20);
 }
 
 // choose a new piece from the sequence.
@@ -321,7 +308,7 @@ void choose_new_piece() {
   piece_id = piece_sequence[sequence_i++];
   // always start the piece top center.
   piece_y=-4;  // -4 squares off the top of the screen.
-  piece_x=3;
+  piece_x=7;
   // always start in the same orientation.
   piece_rotation=0;
 }
@@ -392,25 +379,21 @@ void remove_full_rows() {
       // row full!
       delete_row(y);
     }
-  }  
+  }
 }
 
 
 void try_to_move_piece_sideways() {
-  // what does the joystick angle say
-  int dx = map(analogRead(0),0,1023,512,-512);
+  int left = digitalRead(4);
+  int right = digitalRead(5);
   
   int new_px = 0;
-  // is the joystick really being pushed?
-  if(dx> JOYSTICK_DEAD_ZONE) {
-    new_px=1;
-  }
-  if(dx<-JOYSTICK_DEAD_ZONE) {
-    new_px=-1;
-  }
 
-  if(new_px!=old_px && piece_can_fit(piece_x+new_px,piece_y,piece_rotation)==1) {
-    piece_x+=new_px;
+  if(!left) { new_px=1;}
+  if(!right) { new_px=-1;}
+
+  if (piece_can_fit(piece_x + new_px, piece_y, piece_rotation) == 1) {
+    piece_x += new_px;
   }
   old_px = new_px;
 }
@@ -418,20 +401,10 @@ void try_to_move_piece_sideways() {
 
 void try_to_rotate_piece() {
   int i_want_to_turn=0;
+  int dy = digitalRead(A0);
+  if (!dy) i_want_to_turn = 1;
   
-  // what does the joystick button say
-  int new_button = digitalRead(JOYSTICK_PIN);
-  // if the button state has just changed AND it is being let go,
-  if( new_button > 0 && old_button != new_button ) {
-    i_want_to_turn=1;
-  }
-  old_button=new_button;
-  
-  // up on joystick to rotate
-  int dy = map(analogRead(1),0,1023,512,-512);
-  if(dy<-JOYSTICK_DEAD_ZONE) i_want_to_turn=1;
-  
-  if(i_want_to_turn==1 && i_want_to_turn != old_i_want_to_turn) {
+  if (i_want_to_turn == 1 && i_want_to_turn != old_i_want_to_turn) {
     // figure out what it will look like at that new angle
     int new_pr = ( piece_rotation + 1 ) % 4;
     // if it can fit at that new angle (doesn't bump anything)
@@ -475,14 +448,14 @@ int piece_off_edge(int px,int py,int pr) {
 int piece_hits_rubble(int px,int py,int pr) {
   int x,y;
   const char *piece = pieces[piece_id] + (pr * PIECE_H * PIECE_W);
-  
-  for(y=0;y<PIECE_H;++y) {    
+
+  for(y=0;y<PIECE_H;++y) {
     int ny=py+y;
     if(ny<0) continue;
     for(x=0;x<PIECE_W;++x) {
       int nx=px+x;
       if(piece[y*PIECE_W+x]>0) {
-        if(ny>=GRID_H ) return 1;  // yes: goes off bottom of grid      
+        if(ny>=GRID_H ) return 1;  // yes: goes off bottom of grid
         if(grid[ny*GRID_W+nx]==1 ) return 1;  // yes: grid already full in this space
       }
     }
@@ -507,7 +480,7 @@ void game_over() {
 
 
 void try_to_drop_piece() {
-  erase_piece_from_grid();  
+  erase_piece_from_grid();
   if(piece_can_fit(piece_x,piece_y+1,piece_rotation)) {
     piece_y++;  // move piece down
     add_piece_to_grid();
@@ -526,9 +499,8 @@ void try_to_drop_piece() {
 
 
 void try_to_drop_faster() {
-  int y = map(analogRead(1),0,1023,512,-512);
-  if(y>JOYSTICK_DEAD_ZONE) {
-    // player is holding joystick down, drop a little faster.
+  int y = digitalRead(3);
+  if(!y) {
     try_to_drop_piece();
   }
 }
@@ -548,9 +520,8 @@ void react_to_player() {
 int game_is_over() {
   int x,y;
   const char *piece = pieces[piece_id] + (piece_rotation * PIECE_H * PIECE_W);
-  
   for(y=0;y<PIECE_H;++y) {
-    for(x=0;x<PIECE_W;++x) {      
+    for(x=0;x<PIECE_W;++x) {
       int ny=piece_y+y;
       int nx=piece_x+x;
       if(piece[y*PIECE_W+x]>0) {
@@ -558,33 +529,28 @@ int game_is_over() {
       }
     }
   }
-  
   return 0;  // not over yet...
 }
 
 
 // called once when arduino reboots
 void setup() {
+  dmd.setBrightness(10);
+  dmd.begin();
+  dmd.drawLine(GRID_H, 0, GRID_H, GRID_W-1);
   int i;
-  // set all the pins to output.
-  for(i=0;i<8;++i) {
-    pinMode(anodes[i],OUTPUT);
-    pinMode(cathodes[i],OUTPUT);
-
-    digitalWrite(anodes[i],LOW);
-    digitalWrite(cathodes[i],HIGH);
-  }
   
   // set up speaker pin
   pinMode(PIEZO_PIN, OUTPUT);
   
   // set up joystick button
-  pinMode(JOYSTICK_PIN,INPUT);
-  digitalWrite(JOYSTICK_PIN,HIGH);
-  
+  pinMode(4, INPUT_PULLUP);
+  pinMode(5, INPUT_PULLUP);
+  pinMode(A0, INPUT_PULLUP);
   // make sure arduino knows the grid is empty.
   for(i=0;i<GRID_W*GRID_H;++i) {
     grid[i]=0;
+    gridPrev[i]=0;
   }
   
   // make the game a bit more random - pull a number from space and use it to 'seed' a crop of random numbers.
@@ -605,16 +571,15 @@ void loop() {
   if(millis() - last_move > move_delay ) {
     last_move = millis();
     react_to_player();
+    draw_grid();
   }
-  
+
   // ...and drops the falling block at a different speed.
   if(millis() - last_drop > drop_delay ) {
     last_drop = millis();
     try_to_drop_piece();
   }
   
-  // when it isn't doing those two things, it's redrawing the grid.
-  draw_grid();
 }
 
 
