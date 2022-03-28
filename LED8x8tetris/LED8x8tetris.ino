@@ -241,12 +241,14 @@ long move_delay=100;  // 100ms = 5 times a second
 
 // this controls when the piece automatically falls.
 long last_drop;
-long drop_delay = 200; // 200ms
+long drop_delay=500;
 
 // this is how arduino remembers where pieces are on the grid.
 char grid[GRID_W * GRID_H];
 char gridPrev[GRID_W * GRID_H];
 
+int points = 0;
+int level = 0;
 
 SoftDMD dmd(1, 1);
 //--------------------------------------------------------------------------------
@@ -368,6 +370,8 @@ void delete_row(int y) {
 
 
 void remove_full_rows() {
+  int count=0;
+  int linepoint = 4;
   int x, y, c;
   for(y=0;y<GRID_H;++y) {
     // count the full spaces in this row
@@ -378,7 +382,25 @@ void remove_full_rows() {
     if(c==GRID_W) {
       // row full!
       delete_row(y);
+      count++;
     }
+  }
+
+  if(count > 0) {
+    // count == 1 is the default value
+    if(count == 2) {linepoint = 10;}
+    if(count == 3) {linepoint = 30;}
+    if(count == 4) {linepoint = 120;}
+
+    points = points + linepoint * (level + 1);
+
+    // level 0 - points:0-50
+    if(points > 50  && points<=120 && level == 0 ) { level = 1; drop_delay=300; }
+    else if(points > 120 && points<=360 && level == 1 ) { level = 2; drop_delay=250; }
+    else if(points > 360 && points<=720 && level == 2 ) { level = 3; drop_delay=200; }
+    else if(points > 720 && level == 3 ) { level = 4; drop_delay=150; }
+
+    draw_gui();
   }
 }
 
@@ -532,12 +554,86 @@ int game_is_over() {
   return 0;  // not over yet...
 }
 
+void draw_number(int x, int y, char number) {
+  switch(number) {
+    case '0':
+      dmd.drawLine(x, y, x+4, y);
+      dmd.drawLine(x, y+1, x+4, y+1);
+      break;
+    case '1':
+      dmd.setPixel(x+1, y+1);
+      dmd.drawLine(x, y, x+4, y);
+      break;
+    case '2':
+      dmd.setPixel(x, y);
+      dmd.setPixel(x, y+1);
+      dmd.setPixel(x+1, y);
+      
+      dmd.setPixel(x+2, y+1);
+      dmd.setPixel(x+3, y+1);
+      dmd.setPixel(x+4, y+1);
+      dmd.setPixel(x+4, y);
+      break;
+    case '3':
+      dmd.drawLine(x, y, x+4, y);
+      dmd.setPixel(x, y+1);
+      dmd.setPixel(x+2, y+1);
+      dmd.setPixel(x+4, y+1);
+      break;
+    case '4':
+      dmd.drawLine(x+2, y, x+4, y);
+      dmd.drawLine(x, y+1, x+2, y+1);
+      break;
+    case '5':
+      dmd.drawLine(x+2, y, x+4, y);
+      dmd.drawLine(x, y+1, x+2, y+1);
+      dmd.setPixel(x, y);
+      dmd.setPixel(x+4, y+1);
+      break;
+    case '6':
+      dmd.drawLine(x+2, y, x+4, y);
+      dmd.drawLine(x, y+1, x+4, y+1);
+      dmd.setPixel(x, y);
+      break;
+    case '7':
+      dmd.setPixel(x, y);
+      dmd.setPixel(x, y+1);
+      dmd.setPixel(x+1, y);
+      dmd.drawLine(x+2,y+1, x+4, y+1);
+      break;
+    case '8':
+      dmd.drawLine(x,y,x,y+1);
+      dmd.drawLine(x+2,y,x+4,y);
+      dmd.drawLine(x+2,y+1,x+4,y+1);
+      break;
+    case '9':
+      dmd.drawLine(x, y, x+4, y);
+      dmd.drawLine(x, y+1, x+1, y+1);
+      dmd.setPixel(x+4, y+1);
+      break;
+  }
+}
+
+void draw_gui(){  
+  dmd.drawFilledBox(21,0,31,15, GRAPHICS_OFF);
+  char buffer[7];
+  sprintf (buffer, "%i", points);
+
+  draw_number(23, 2, buffer[4]); //x,y,number
+  draw_number(23, 5, buffer[3]);
+  draw_number(23, 8, buffer[2]);
+  draw_number(23, 11, buffer[1]);
+  draw_number(23, 14, buffer[0]);
+
+  dmd.drawLine(GRID_H, 0, GRID_H, GRID_W-1);
+}
+
 
 // called once when arduino reboots
 void setup() {
+  //Serial.begin(115200);
   dmd.setBrightness(10);
   dmd.begin();
-  dmd.drawLine(GRID_H, 0, GRID_H, GRID_W-1);
   int i;
   
   // set up speaker pin
@@ -562,6 +658,13 @@ void setup() {
   // start the game clock after everything else is ready.
   last_move = millis();
   last_drop = last_move;
+  
+  // Reset values for new game
+  points = 0;
+  level = 0;
+  drop_delay=500;
+
+  draw_gui();
 }
 
 
@@ -579,7 +682,6 @@ void loop() {
     last_drop = millis();
     try_to_drop_piece();
   }
-  
 }
 
 
@@ -599,4 +701,3 @@ void loop() {
 * You should have received a copy of the GNU General Public License
 * along with Arduino Timer Interrupt. If not, see <http://www.gnu.org/licenses/>.
 */
-
