@@ -251,6 +251,11 @@ char gridPrev[GRID_W * GRID_H];
 int points = 0;
 int level = 0;
 
+bool gameStarted = false;
+bool introRendered = false;
+bool gameOver = false;
+bool overRendered = false;
+
 SoftDMD dmd(1, 1);
 //--------------------------------------------------------------------------------
 // METHODS
@@ -401,10 +406,10 @@ void remove_full_rows() {
     points = points + linepoint * (level + 1);
 
     // level 0 - points:0-50
-    if(points > 50  && points<=120 && level == 0 ) { level = 1; drop_delay=300; }
-    else if(points > 120 && points<=360 && level == 1 ) { level = 2; drop_delay=250; }
-    else if(points > 360 && points<=720 && level == 2 ) { level = 3; drop_delay=200; }
-    else if(points > 720 && level == 3 ) { level = 4; drop_delay=150; }
+    if(points > 50  && points<=120 ) { level = 1; drop_delay=300; }
+    else if(points > 120 && points<=360 ) { level = 2; drop_delay=250; }
+    else if(points > 360 && points<=720 ) { level = 3; drop_delay=200; }
+    else if(points > 720 ) { level = 4; drop_delay=150; }
 
     draw_gui();
   }
@@ -497,9 +502,12 @@ void game_over() {
   int x,y;
 
   while(1) {
+    if(!overRendered)renderOver();
     // click the button?
-    if(digitalRead(1)==0) {
+    if(digitalRead(A0)==0) {
       // restart!
+      overRendered = false;
+      gameOver=false;
       setup();
       return;
     }
@@ -555,7 +563,10 @@ int game_is_over() {
       int ny=piece_y+y;
       int nx=piece_x+x;
       if(piece[y*PIECE_W+x]>0) {
-        if(ny<0) return 1;  // yes: off the top!
+        if(ny<0) {
+          gameOver = true;
+          return 1;  // yes: off the top!
+        }
       }
     }
   }
@@ -663,7 +674,7 @@ void setup() {
   dmd.setBrightness(10);
   dmd.begin();
   int i;
-  
+
   // set up speaker pin
   pinMode(PIEZO_PIN, OUTPUT);
   
@@ -676,41 +687,113 @@ void setup() {
     grid[i]=0;
     gridPrev[i]=0;
   }
-  
+
   // make the game a bit more random - pull a number from space and use it to 'seed' a crop of random numbers.
   randomSeed(analogRead(1));
-  
-  // get ready to start the game.
-  choose_new_piece();
-  use_next_piece();
-  choose_new_piece();
-  
-  // start the game clock after everything else is ready.
-  last_move = millis();
-  last_drop = last_move;
   
   // Reset values for new game
   points = 0;
   level = 0;
   drop_delay=500;
+}
 
-  draw_gui();
+void renderIntro(){
+  int posx=7;
+  int posy=3;
+  dmd.drawFilledBox(0,0,31,15, GRAPHICS_OFF);
+  
+  bool image[17][10] = {
+    {1,1,1,1,0,1,1,1,1},
+    {0,1,1,0,0,1,1},
+    {0,1,1,0,0,1,1,1},
+    {0,1,1,0,0,1,1},
+    {0,1,1,0,0,1,1,1,1},
+    {0},
+    {1,1,1,1,0,1,1,1,1},
+    {0,1,1,0,0,1,1,0,1},
+    {0,1,1,0,0,1,1,1},
+    {0,1,1,0,0,1,1,0,1},
+    {0,1,1,0,0,1,1,0,1},
+    {0},
+    {1,1,1,1,0,1,1,1,1},
+    {0,1,1,0,0,1,1},
+    {0,1,1,0,0,1,1,1,1},
+    {0,1,1,0,0,0,0,1,1},
+    {1,1,1,1,0,1,1,1,1},
+  };
+  
+  // Render image
+  for (int row=0; row<17; row++) {
+    for(int col=0; col<10; col++) {
+      if(image[row][col]){dmd.setPixel(row+posx, 15-col-posy);}
+    }
+  }
+}
+
+void renderOver() {
+  int posx=4;
+  int posy=3;
+  dmd.drawFilledBox(0,0,19,15, GRAPHICS_OFF);
+
+  bool image[17][10] = {
+    {1,1,1,1,0,1,1,0,1},
+    {1,1,0,1,0,1,1,0,1},
+    {1,1,0,1,0,1,1,0,1},
+    {1,1,0,1,0,0,1,0,1},
+    {1,1,1,1,0,0,0,1,0},
+    {0},
+    {1,1,1,1,0,1,1,1,1},
+    {1,1,0,0,0,1,1,0,1},
+    {1,1,1,0,0,1,1,1},
+    {1,1,0,0,0,1,1,0,1},
+    {1,1,1,1,0,1,1,0,1},
+  };
+
+
+  // Render image
+  for (int row=0; row<17; row++) {
+    for(int col=0; col<10; col++) {
+      if(image[row][col]){dmd.setPixel(row+posx, 15-col-posy);}
+    }
+  }
+  overRendered=true;
 }
 
 
 // called over and over after setup()
 void loop() {
-  // the game plays at one speed,
-  if(millis() - last_move > move_delay ) {
-    last_move = millis();
-    react_to_player();
-    draw_grid();
+  if(!gameStarted && !introRendered) {
+    renderIntro();
+    introRendered = true;
+  }
+  else if(gameStarted) {
+    // the game plays at one speed,
+    if(millis() - last_move > move_delay ) {
+      last_move = millis();
+      react_to_player();
+      draw_grid();
+    }
+  
+    // ...and drops the falling block at a different speed.
+    if(millis() - last_drop > drop_delay ) {
+      last_drop = millis();
+      try_to_drop_piece();
+    }
   }
 
-  // ...and drops the falling block at a different speed.
-  if(millis() - last_drop > drop_delay ) {
-    last_drop = millis();
-    try_to_drop_piece();
+  if(gameStarted == false) {
+    if(digitalRead(A0) == 0) {
+      dmd.drawFilledBox(0,0,31,15, GRAPHICS_OFF);
+      // get ready to start the game.
+      choose_new_piece();
+      use_next_piece();
+      choose_new_piece();
+      // start the game clock
+      last_move = millis();
+      last_drop = last_move;
+      gameStarted = true;
+      draw_gui();
+    }
   }
 }
 
