@@ -227,6 +227,7 @@ int old_px = 0;
 int old_i_want_to_turn=0;
 
 // this is how arduino remembers the falling piece.
+int next_piece_id;
 int piece_id;
 int piece_rotation;
 int piece_x;
@@ -306,8 +307,13 @@ void choose_new_piece() {
     sequence_i=0;
   }
   
+  next_piece_id = piece_sequence[sequence_i++];
+  draw_gui();
+}
+
+void use_next_piece(){
   // get the next piece in the sequence.
-  piece_id = piece_sequence[sequence_i++];
+  piece_id = next_piece_id;
   // always start the piece top center.
   piece_y=-4;  // -4 squares off the top of the screen.
   piece_x=7;
@@ -371,7 +377,7 @@ void delete_row(int y) {
 
 void remove_full_rows() {
   int count=0;
-  int linepoint = 4;
+  int linepoint = 15;
   int x, y, c;
   for(y=0;y<GRID_H;++y) {
     // count the full spaces in this row
@@ -388,9 +394,9 @@ void remove_full_rows() {
 
   if(count > 0) {
     // count == 1 is the default value
-    if(count == 2) {linepoint = 10;}
-    if(count == 3) {linepoint = 30;}
-    if(count == 4) {linepoint = 120;}
+    if(count == 2) {linepoint = 30;}
+    if(count == 3) {linepoint = 90;}
+    if(count == 4) {linepoint = 150;}
 
     points = points + linepoint * (level + 1);
 
@@ -515,6 +521,8 @@ void try_to_drop_piece() {
       game_over();
     }
     // game isn't over, choose a new piece
+    points = points+1;
+    use_next_piece();
     choose_new_piece();
   }
 }
@@ -626,6 +634,26 @@ void draw_gui(){
   draw_number(23, 14, buffer[0]);
 
   dmd.drawLine(GRID_H, 0, GRID_H, GRID_W-1);
+
+  dmd.drawLine(31, 0, 31, level);
+
+  // Draw next piece
+  int posy=29;
+  const char *piece = pieces[next_piece_id];
+
+  // piece "I" should be positioned differently on the preview
+  if(next_piece_id == 6) {
+     posy=27;
+  }
+  for(int y=0;y<PIECE_H;++y) {
+    for(int x=0;x<PIECE_W;++x) {
+      if(y<0 || y>GRID_H) continue;
+      if(x<0 || x>GRID_W) continue;
+      if(piece[y*PIECE_W+x]==1) {
+        dmd.setPixel(y+posy,x+7);
+      }
+    }
+  }
 }
 
 
@@ -653,6 +681,8 @@ void setup() {
   randomSeed(analogRead(1));
   
   // get ready to start the game.
+  choose_new_piece();
+  use_next_piece();
   choose_new_piece();
   
   // start the game clock after everything else is ready.
